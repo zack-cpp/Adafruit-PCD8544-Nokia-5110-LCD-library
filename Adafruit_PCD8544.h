@@ -22,10 +22,26 @@
 #ifndef _ADAFRUIT_PCD8544_H
 #define _ADAFRUIT_PCD8544_H
 
+#if defined(ARDUINO) && ARDUINO >= 100
 #include "Arduino.h"
+#else
+#include "WProgram.h"
+#include "pins_arduino.h"
+#endif
+
 #include <Adafruit_GFX.h>
-#include <Adafruit_SPIDevice.h>
 #include <SPI.h>
+
+#if defined(__SAM3X8E__) || defined(ARDUINO_ARCH_SAMD)
+typedef volatile RwReg PortReg; ///< PortReg for SAMD
+typedef uint32_t PortMask;      ///< PortMask for SAMD
+#elif defined(__AVR__)
+typedef volatile uint8_t PortReg; ///< PortReg for AVR
+typedef uint8_t PortMask;         ///< PortMask for AVR
+#else
+typedef volatile uint32_t PortReg; ///< PortReg for other chips
+typedef uint32_t PortMask;         ///< PortMask for other chips
+#endif
 
 #define BLACK 1 ///< Black pixel
 #define WHITE 0 ///< White pixel
@@ -57,55 +73,99 @@
 #define PCD8544_SETVOP                                                         \
   0x80 ///< Extended instruction set - Write Vop to register
 
+#define PCD8544_SPI_CLOCK_DIV                                                  \
+  SPI_CLOCK_DIV4 ///< Default to max SPI clock speed for PCD8544 of 4 mhz (16mhz
+                 ///< / 4) for normal Arduinos. This can be modified to change
+                 ///< the clock speed if necessary (like for supporting other
+                 ///< hardware).
+
 /**************************************************************************/
 /*!
     @brief The PCD8544 LCD class
  */
 class Adafruit_PCD8544 : public Adafruit_GFX {
 public:
-  Adafruit_PCD8544(int8_t sclk_pin, int8_t din_pin, int8_t dc_pin,
-                   int8_t cs_pin, int8_t rst_pin);
-  Adafruit_PCD8544(int8_t dc_pin, int8_t cs_pin, int8_t rst_pin,
-                   SPIClass *theSPI = &SPI);
+  Adafruit_PCD8544(int8_t SCLK, int8_t DIN, int8_t DC, int8_t CS, int8_t RST);
+  Adafruit_PCD8544(int8_t SCLK, int8_t DIN, int8_t DC, int8_t RST);
+  Adafruit_PCD8544(int8_t DC, int8_t CS, int8_t RST);
 
-  bool begin(uint8_t contrast = 40, uint8_t bias = 0x04);
+  void begin(uint8_t contrast = 40, uint8_t bias = 0x04);
 
   void command(uint8_t c);
   void data(uint8_t c);
 
   void setContrast(uint8_t val);
-  uint8_t getContrast(void);
-
-  uint8_t getBias(void);
   void setBias(uint8_t val);
-
+  uint8_t getContrast(void);
+  uint8_t getBias(void);
   void clearDisplay(void);
   void display();
-  void updateBoundingBox(uint8_t xmin, uint8_t ymin, uint8_t xmax,
-                         uint8_t ymax);
-
   void setReinitInterval(uint8_t val);
   uint8_t getReinitInterval(void);
 
   void drawPixel(int16_t x, int16_t y, uint16_t color);
-  void setPixel(int16_t x, int16_t y, bool color, uint8_t *buffer);
-  bool getPixel(int16_t x, int16_t y, uint8_t *buffer);
+  uint8_t getPixel(int8_t x, int8_t y);
 
   void initDisplay();
-  void invertDisplay(bool i);
-  void scroll(int8_t vpixels, int8_t hpixels);
+
+  /**************************************************************************/
+    /*!
+        @brief Set all text alignmet to center at X axis and Y axis
+        @param dataString Data to be displayed. Each data separated with comma (",")
+        with String type.
+        @param xSize   text size X axis
+        @param ySize   text size Y axis
+        @param spacee  space beetwen data in pixel(s)
+    */
+  /**************************************************************************/
+  void printAlignmentCenter(String dataString, byte xSize, byte ySize, byte spacee);
+
+  /**************************************************************************/
+    /*!
+        @brief Set all text alignmet to center at X axis and Y axis
+        @param dataString Data to be displayed. Each data separated with comma (",")
+        with String type.
+        @param headerOrFooter header or footer data
+        @param xSize   text size X axis
+        @param ySize   text size Y axis
+        @param spacee  space beetwen data in pixel(s)
+        @param noFooter true if the data is Footer, false if the data is Header
+    */
+  /**************************************************************************/
+  void printAlignmentCenter(String dataString, String headerOrFooter[], byte xSize, byte ySize, byte spacee, bool noFooter);
+  
+  /**************************************************************************/
+    /*!
+        @brief Set all text alignmet to center at X axis and Y axis
+        @param dataString Data to be displayed. Each data separated with comma (",")
+        with String type.
+        @param header  text to be displayed before the data
+        @param footer  text to be displayed after the data
+        @param xSize   text size X axis
+        @param ySize   text size Y axis
+        @param spacee  space beetwen data in pixel(s)
+    */
+  /**************************************************************************/
+  void printAlignmentCenter(String dataString, String header[], String footer[], byte xSize, byte ySize, byte spacee);
 
 private:
-  Adafruit_SPIDevice *spi_dev = NULL;
-  int8_t _rstpin = -1, _dcpin = -1;
-
+  int8_t _din;              ///< DIN pin
+  int8_t _sclk;             ///< SCLK pin
+  int8_t _dc;               ///< DC pin
+  int8_t _rst;              ///< RST pin
+  int8_t _cs;               ///< CS pin
   uint8_t _contrast;        ///< Contrast level, Vop
   uint8_t _bias;            ///< Bias value
   uint8_t _reinit_interval; ///< Reinitialize the display after this many calls
                             ///< to display()
   uint8_t _display_count;   ///< Count for reinit interval
+  volatile PortReg *mosiport; ///< MOSI port
+  volatile PortReg *clkport;  ///< CLK port
+  PortMask mosipinmask;       ///< MOSI port mask
+  PortMask clkpinmask;        ///< CLK port mask
 
-  uint8_t xUpdateMin, xUpdateMax, yUpdateMin, yUpdateMax;
+  void spiWrite(uint8_t c);
+  bool isHardwareSPI();
 };
 
 #endif
